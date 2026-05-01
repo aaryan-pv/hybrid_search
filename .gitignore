@@ -1,0 +1,28 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local database and temp files
+keywords.db
+lancedb/
+*.sqlite3
+*.db
+*.log
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
