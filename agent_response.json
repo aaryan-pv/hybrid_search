@@ -1,0 +1,148 @@
+{
+  "tests": [
+    {
+      "id": 1,
+      "question": "I’m planning a short trip to Delhi tomorrow. What weather should I expect and how should I prepare?",
+      "expected_tools": ["get_weather"],
+      "actual_tools": ["get_weather", "web_search"]
+    },
+    {
+      "id": 2,
+      "question": "What are the latest headlines about AI companies and how might they impact the stock market?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["finance_tool", "web_search"]
+    },
+    {
+      "id": 3,
+      "question": "I’ve had fever, headache, and body pain for 3 days. What could this mean and when should I be concerned?",
+      "expected_tools": ["medical_tool"],
+      "actual_tools": ["medical_tool"]
+    },
+    {
+      "id": 4,
+      "question": "A major tech company released new earnings results. Summarize the news and explain how it affects its stock outlook.",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["web_search", "news_tool"]
+    },
+    {
+      "id": 5,
+      "question": "How does rainfall this week in Mumbai compare with normal patterns, and should it affect travel plans?",
+      "expected_tools": ["get_weather"],
+      "actual_tools": ["get_weather", "news_tool", "web_search"]
+    },
+    {
+      "id": 6,
+      "question": "What’s happening in global markets today and how are AI companies reacting to recent developments?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["finance_tool", "news_tool", "web_search"]
+    },
+    {
+      "id": 7,
+      "question": "Explain whether combining common painkillers is safe and what risks are involved.",
+      "expected_tools": ["medical_tool"],
+      "actual_tools": ["medical_tool"]
+    },
+    {
+      "id": 8,
+      "question": "What are the latest updates on inflation and interest rates, and how might they influence stock markets?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["finance_tool", "news_tool"]
+    },
+    {
+      "id": 9,
+      "question": "I uploaded a technical PDF about machine learning. Summarize it and explain how it relates to modern AI systems.",
+      "expected_tools": ["ingest_pdf_tool", "search_tool"],
+      "actual_tools": ["ingest_pdf_tool", "search_tool"]
+    },
+    {
+      "id": 10,
+      "question": "What are the most important global events happening right now and what economic effects could they have?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["news_tool", "finance_tool"]
+    },
+    {
+      "id": 11,
+      "question": "Explain how AI agents decide when to use external tools or rely on internal knowledge.",
+      "expected_tools": ["search_tool"],
+      "actual_tools": ["web_search"]
+    },
+    {
+      "id": 12,
+      "question": "What are current advancements in AI automation and how are companies applying them in real products?",
+      "expected_tools": ["web_search", "news_tool"],
+      "actual_tools": ["web_search", "news_tool"]
+    },
+    {
+      "id": 13,
+      "question": "A person is showing symptoms of fever and rash after traveling. What could this indicate and what should be done?",
+      "expected_tools": ["medical_tool"],
+      "actual_tools": ["medical_tool"]
+    },
+    {
+      "id": 14,
+      "question": "How are recent technological breakthroughs affecting stock prices of major companies?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["web_search", "finance_tool"]
+    },
+    {
+      "id": 15,
+      "question": "What are the biggest economic and political developments this week and how might they shape investment decisions?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["web_search", "finance_tool", "news_tool"]
+    },
+    {
+      "id": 16,
+      "question": "Something unusual is happening in global markets and people are reacting strongly. What’s going on and what should I understand from it?",
+      "expected_tools": ["news_tool", "finance_tool"],
+      "actual_tools": ["news_tool", "web_search", "finance_tool"]
+    },
+    {
+      "id": 17,
+      "question": "A lot of people are talking about sudden changes in weather patterns affecting daily life. What’s happening?",
+      "expected_tools": ["get_weather"],
+      "actual_tools": ["news_tool", "web_search"]
+    },
+    {
+      "id": 18,
+      "question": "There’s been a major shift recently in how big tech companies are performing. Can you explain what’s driving it?",
+      "expected_tools": ["news_tool"],
+      "actual_tools": ["news_tool", "web_search"]
+    },
+    {
+      "id": 19,
+      "question": "People are saying a new health issue is spreading in some regions. What should I know about it?",
+      "expected_tools": ["medical_tool"],
+      "actual_tools": ["medical_tool", "web_search"]
+    },
+    {
+      "id": 20,
+      "question": "Something changed recently that is affecting fuel prices and transportation costs. What’s behind it?",
+      "expected_tools": ["news_tool"],
+      "actual_tools": ["news_tool", "web_search"]
+    },
+    {
+      "id": 21,
+      "question": "There’s been a lot of discussion about companies changing their strategies recently. What’s actually happening?",
+      "expected_tools": ["news_tool"],
+      "actual_tools": ["news_tool", "web_search"]
+    },
+    {
+      "id": 22,
+      "question": "There’s been a lot of movement in stock valuations lately across industries. What does it mean?",
+      "expected_tools": ["finance_tool", "news_tool"],
+      "actual_tools": ["news_tool", "web_search", "finance_tool"]
+    },
+    {
+      "id": 23,
+      "question": "Something new is happening in the tech world that is changing how systems work. What is it?",
+      "expected_tools": ["web_search", "news_tool"],
+      "actual_tools": ["news_tool", "web_search"]
+    },
+    {
+      "id": 24,
+      "question": "I heard there are changes affecting human health in certain regions due to environmental factors. What’s going on?",
+      "expected_tools": ["medical_tool", "news_tool"],
+      "actual_tools": ["news_tool", "medical_tool", "web_search"]
+    }
+  ]
+}

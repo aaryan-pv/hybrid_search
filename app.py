@@ -44,141 +44,108 @@ llm_with_tools = llm.bind_tools(tools)
 
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    steps: int
 
 
 SYSTEM_PROMPT = SystemMessage(content="""
-You are a multi-tool enabled reasoning agent.
+You are an autonomous multi-tool reasoning agent.
 
-Your job is to carefully understand the user query, select the correct tool(s), execute them when needed, and produce a single well-structured final answer.
-
-You must always mention which tool(s) were used in the final response.
-
----
-
-TOOLS AVAILABLE:
-- ingest_pdf_tool → load and extract PDF content
-- search_tool → best hybrid document retrieval (FIRST choice for PDFs/docs)
-- keyword_search_tool → fallback document retrieval
-- web_search → general web information
-- news_tool → general latest news (NOT AI/tech)
-- newsletter_tool → AI/tech curated insights only
-- get_weather → weather data
-- finance_tool → financial information ONLY (trusted sources)
-- medical_tool → medical information ONLY (trusted sources)
+Your goal is to produce a COMPLETE and ACCURATE answer by:
+- Selecting the right tools
+- Calling tools multiple times if needed
+- Evaluating tool outputs critically
+- Continuing until the answer is sufficient
 
 ---
 
-CORE BEHAVIOR:
+### CORE WORKFLOW:
 
-1. INTENT ANALYSIS:
-   Identify the query type:
-   - Document-based?
-   - Finance?
-   - Medical?
-   - News?
-   - AI/Tech trends?
-   - Weather?
-   - General knowledge?
+At every step you MUST:
 
-2. TOOL SELECTION RULES (STRICT):
+1. ANALYZE:
+   What information is needed?
 
-- Document queries:
-  → ALWAYS use search_tool first
-  → fallback: keyword_search_tool
+2. DECIDE:
+   Do I already have enough information?
+   - YES → produce final answer
+   - NO → call one or more tools
 
-- AI/Tech news or trends:
-  → ALWAYS use newsletter_tool
-  → NEVER use news_tool or web_search
+3. EVALUATE TOOL OUTPUT:
+   After each tool call, ask:
+   - Is this information complete?
+   - Is anything missing?
+   - Do I need another source?
 
-- General news:
-  → use news_tool
-
-- Weather queries:
-  → use get_weather
-
-- Finance queries:
-  → use finance_tool ONLY
-  → NEVER use web_search
-
-- Medical queries:
-  → use medical_tool ONLY
-  → NEVER use web_search
-
-- Unknown/general queries:
-  → use web_search
+4. CONTINUE IF NEEDED:
+   If information is incomplete, unclear, or insufficient:
+   → Call another tool
+   → Or call the same tool with a better query
 
 ---
 
-3. MULTI-TOOL USAGE (IMPORTANT):
+### IMPORTANT BEHAVIOR:
 
-If the query requires multiple perspectives or sources, you SHOULD call multiple tools in the same step.
-
-Examples:
-- PDF + web comparison → search_tool + web_search
-- Finance + news context → finance_tool + news_tool
-- Document + external explanation → search_tool + web_search
+- You are NOT limited to one tool call
+- You SHOULD use multiple tools when needed
+- You MUST NOT stop early with partial information
 
 ---
 
-4. OUTPUT FUSION RULE:
+### TOOL SELECTION RULES:
 
-When multiple tools are used:
-- Combine all outputs into one coherent answer
-- Remove duplicates
-- Prioritize most relevant information
-- Do NOT treat tool outputs separately
-- Always synthesize into a final response
-
----
-
-5. FEW-SHOT EXAMPLES:
-
-User: "What is inflation?"
-→ finance_tool
-
-User: "Symptoms of dengue"
-→ medical_tool
-
-User: "Latest AI trends"
-→ newsletter_tool
-
-User: "What is happening in global markets today?"
-→ news_tool
-
-User: "Explain transformer architecture from my PDF and compare with latest web info"
-→ search_tool + web_search
-
-User: "Weather in Delhi"
-→ get_weather
+- Document queries → search_tool → fallback keyword_search_tool
+- AI/Tech → newsletter_tool ONLY
+- General news → news_tool
+- Weather → get_weather
+- Finance → finance_tool ONLY
+- Medical → medical_tool ONLY
+- General → web_search
 
 ---
 
-6. STRICT CONSTRAINTS:
+### SELF-CORRECTION RULE:
 
-- NEVER use web_search for finance or medical queries
-- ALWAYS prefer specialized tools over web_search
-- DO NOT call unnecessary tools
-- DO NOT guess when a tool exists
-- DO NOT split final answer per tool (always merge)
+If a tool output is:
+- incomplete
+- vague
+- missing key details
+
+You MUST explicitly continue by calling another tool.
 
 ---
 
-7. FINAL RESPONSE RULE:
+### COMPLETION RULE:
 
-- Provide a single final answer
-- Clearly mention tool(s) used in one line at the end
-- Do NOT show hidden reasoning or steps
+You may ONLY stop when:
+- The answer is complete
+- All aspects of the query are addressed
+
+STRICT OUTPUT RULES (MANDATORY):
+
+- DO NOT output your reasoning, thoughts, analysis, or decision process
+- DO NOT explain tool selection
+- DO NOT include intermediate steps
+
+You MUST ONLY output:
+
+FINAL ANSWER:
+<clean user-facing answer only>
+
+Tools used: <comma-separated tool names>
 """)
 
 
 def call_model(state: AgentState):
     messages = state["messages"]
-
+    steps = state.get("steps", 0)
     response = llm_with_tools.invoke(
         [SYSTEM_PROMPT] + messages
     )
 
-    return {"messages": [response]}
+    return {
+        "messages": [response],
+        "steps": steps + 1
+    }
 
 def call_tools(state: AgentState):
     messages = state["messages"]
@@ -190,13 +157,12 @@ def call_tools(state: AgentState):
 
         for call in last_msg.tool_calls:
             tool = tool_map[call["name"]]
-            tool_name = call["name"]
             result = tool.invoke(call["args"])
 
             save_message(
                 role="tool",
                 content=str(result),
-                tool_used=tool_name
+                tool_used=call["name"]
             )
 
             tool_outputs.append(
@@ -208,14 +174,26 @@ def call_tools(state: AgentState):
 
     return {"messages": tool_outputs}
 
-
+MAX_STEPS=5
 def should_continue(state: AgentState):
     last = state["messages"][-1]
+    steps = state.get("steps", 0)
 
+
+    if steps >= MAX_STEPS:
+        return END
+    # If tool calls exist → execute tools
     if hasattr(last, "tool_calls") and last.tool_calls:
         return "tools"
 
-    return END
+    # If model explicitly finished → stop
+    if isinstance(last.content, str) and "FINAL ANSWER:" in last.content:
+        return END
+
+    # Otherwise → let model think again (self-correction loop)
+    return "agent"
+
+
 
 graph = StateGraph(AgentState)
 
@@ -232,6 +210,7 @@ graph.add_conditional_edges(
     should_continue,
     {
         "tools": "tools",
+        "agent": "agent",
         END: END
     }
 )
@@ -241,6 +220,14 @@ graph.add_edge("tools", "agent")
 agent = graph.compile()
 
 chat_history = []
+import re
+
+def clean_response(text: str):
+    match = re.search(r"FINAL ANSWER:\s*(.*)", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
+
 
 print("\n Agent Ready (type 'exit' to quit)\n")
 
@@ -249,16 +236,20 @@ while True:
 
     if user_input.lower() in ["exit", "quit"]:
         break
+    MAX_MEMORY = 4
 
     chat_history.append(HumanMessage(content=user_input))
 
+    trimmed_history = chat_history[-MAX_MEMORY:]
+
     result = agent.invoke({
-        "messages": chat_history
+    "messages": trimmed_history
     })
-
+  
     response = result["messages"][-1]
+    cleaned_output = clean_response(response.content)
 
-    print(f"\n AI: {response.content}\n")
+    print(f"\n AI: {cleaned_output}\n")
     save_message("assistant", response.content)
     chat_history.append(HumanMessage(content=user_input))
  

@@ -1,24 +1,5 @@
 # SEarch_MCP
 
-1. Overview
-
-This document describes the design, implementation, and evaluation of a Hybrid Search Service integrated with a LangGraph Agent and exposed via a FastAPI MCP server.
-
-The system enables:
-
-PDF ingestion and chunking
-Hybrid retrieval (Dense + Sparse + Keyword)
-Agent-based querying using tools
-External integration via MCP-compatible interfaces
-
-2. System Architecture
-2.1 High-Level Components
-User → LangGraph Agent → Tools → Retrieval Layer → Storage
-                                      ↓
-                         (LanceDB + BM25 + SQLite)
-                                      ↓
-                               FastAPI MCP Server
-
 ## Repository Structure
 
 - `app.py` - Agent orchestration using `langgraph` and a tool-enabled LLM loop.
@@ -59,7 +40,7 @@ This module contains the primary search logic and ingestion pipeline.
   - Applies reciprocal rank fusion to merge the three result lists.
   - Returns enriched document chunks for downstream consumption.
 
-#### Tool wrappers
+#### Tools 
 
 These wrappers expose the core search functions as LangChain-compatible tools.
 
@@ -71,6 +52,24 @@ These wrappers expose the core search functions as LangChain-compatible tools.
 
 - `search_tool(query: str) -> str`
   - Executes the `hybrid_search` pipeline and returns best-matching chunks.
+
+- `weather_tool` 
+  - Used for any weather related query,can fetchthe real time weather detail for a city.
+
+- `news_tool`
+  - Agent can use this tool to get any trending news, used the NEWSAPI to get the latest info.
+
+- `newsletter_tool`
+  -Added 2-3 newsletter sites related to tech/ai field, the agent can use this direct to get news about ai field rather than using simple news/web_search tool.
+
+- `web_search`
+  - Used Tavily API, so that agent can search for anythin on the web.
+
+- `finance_tool`
+  - Connected to some credible finane related news/info websites.This act as a domain specific tool, agent should use this for any finance related query over other tools.
+
+- `medical_tool`-
+  -Connected to some credible medical related news/info websites.This act as a domain specific tool, agent should use this for any health related query over other tools.
 
 ### `search_fastmcp.py`
 
@@ -89,6 +88,21 @@ This file defines the HTTP API for the hybrid retrieval service.
 - `POST /upload-pdf/`
   - Accepts file uploads via multipart form data.
   - Writes the uploaded file locally and ingests it through `ingest_pdf`.
+
+- `POST /search/news`
+  - Helps the agent to fetch latest news.
+
+- `POST /search/web`
+  - This route is used when the agent needs to search anything on web.
+
+- `POST /search/news_letter`
+  - Accepts a topic, based on that fetches the newsletter from the defined sources.
+
+- `POST /finance`
+  - It is a domain specific tool,the aim is whenever any finance related query is given to agent, it should give priority to this tool, instead of other like web_search.
+
+- `POST/medical`
+  - It is a domain specific tool,the aim is whenever any medical related query is given to agent, it should give priority to this tool, instead of other like web_search.
 
 #### MCP integration
 
