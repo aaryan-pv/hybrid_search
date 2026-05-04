@@ -1,16 +1,22 @@
 import numpy as np
 import lancedb
 import sqlite3
+import requests
 import yake
-
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 from pypdf import PdfReader
-from langchain.tools import tool
 
-# ------------------------
-# GLOBALS
-# ------------------------
+from tavily import TavilyClient
+import os
+from langchain_core.tools import tool
+from typing import List, Dict
+import feedparser
+
+# API keys are checked at request time to avoid import-time environment mismatches.
+ 
+
+tavily = TavilyClient(api_key="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")
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -34,11 +40,6 @@ CREATE TABLE IF NOT EXISTS chunk_keywords (
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_keyword ON chunk_keywords(keyword)")
 
 kw_extractor = yake.KeywordExtractor(lan="en", n=2, top=5)
-
-
-# ------------------------
-# CORE FUNCTIONS
-# ------------------------
 
 def load_pdf(file_path: str):
     reader = PdfReader(file_path)
@@ -164,9 +165,190 @@ def hybrid_search(query: str, k: int = 5):
     ]
 
 
-# ------------------------
-# TOOLS
-# ------------------------
+@tool
+def finance_tool(query: str) -> str:
+    """Finance domain tool using trusted sources only."""
+
+    trusted_domains = [
+        "rbi.org.in",
+        "federalreserve.gov",
+        "imf.org",
+        "worldbank.org",
+        "investopedia.com"
+    ]
+
+    results = tavily.search(
+        query=query,
+        max_results=5,
+        include_domains=trusted_domains
+    )
+
+    output = []
+    for r in results["results"]:
+        output.append(f"{r['title']}\n{r['content']}\nSource: {r['url']}")
+
+    return "\n\n".join(output)
+ 
+@tool
+def web_search(query: str) -> List[Dict]:
+    """Search the web for recent or unknown information."""
+
+    response = tavily.search(query=query, max_results=3)
+
+    results = []
+
+    for i, r in enumerate(response["results"]):
+        results.append({
+            "source": "web",
+            "title": r.get("title", ""),
+            "content": r.get("content", ""),
+            "url": r.get("url", ""),
+            "score": 1.0 / (i + 1)
+        })
+
+    return results
+
+@tool
+def news_tool(query: str, k: int = 3) -> List[Dict]:
+    """Use for latest news, recent events, or current updates."""
+
+    api_key ="93407727d1ad49ea874a36999cbf63b1"
+    if not api_key:
+        return [
+            {
+                "source": "news",
+                "title": "News API key not configured",
+                "content": "Set NEWS_API_KEY in the environment before calling news_tool.",
+                "url": "",
+                "score": 0.0,
+            }
+        ]
+
+    url = "https://newsapi.org/v2/everything"
+    params = {
+        "q": query,
+        "apiKey": api_key,
+        "pageSize": k,
+        "language": "en",
+        "sortBy": "publishedAt",
+    }
+
+    response = requests.get(url, params=params, timeout=10)
+
+    if response.status_code != 200:
+        error = response.json().get("message", "Unknown News API error")
+        return [
+            {
+                "source": "news",
+                "title": "News API request failed",
+                "content": error,
+                "url": "",
+                "score": 0.0,
+            }
+        ]
+
+    res = response.json()
+    articles = res.get("articles", [])[:k]
+
+    results = []
+    for i, a in enumerate(articles):
+        results.append({
+            "source": "news",
+            "title": a.get("title", ""),
+            "content": a.get("description", ""),
+            "url": a.get("url", ""),
+            "score": 1.0 / (i + 1)
+        })
+
+    return results
+
+@tool
+def get_weather(city: str) -> Dict:
+    """Get current weather of a city."""
+
+    api_key ="1ebdfab43a461b105acc7c7aa0273839" 
+    if not api_key:
+        return {
+            "source": "weather",
+            "city": city,
+            "error": "OpenWeather API key is missing. Set OPEN_WEATHER_API_KEY in the environment.",
+            "score": 0.0
+        }
+
+    url = (
+        f"http://api.openweathermap.org/data/2.5/weather"
+        f"?q={city}&appid={api_key}&units=metric"
+    )
+
+    response = requests.get(url)
+    data = response.json()
+
+    if response.status_code != 200:
+        return {
+            "source": "weather",
+            "city": city,
+            "error": data.get("message", "Could not fetch weather"),
+            "score": 0.0
+        }
+
+    return {
+        "source": "weather",
+        "city": city,
+        "temperature": data["main"]["temp"],
+        "description": data["weather"][0]["description"],
+        "humidity": data["main"]["humidity"],
+        "score": 1.0
+    }
+
+@tool
+def medical_tool(query: str) -> str:
+    """Medical domain tool using trusted health sources."""
+
+    trusted_domains = [
+        "who.int",
+        "cdc.gov",
+        "nih.gov",
+        "mayoclinic.org"
+    ]
+
+    results = tavily.search(
+        query=query,
+        max_results=5,
+        include_domains=trusted_domains
+    )
+
+    output = []
+    for r in results["results"]:
+        output.append(f"{r['title']}\n{r['content']}\nSource: {r['url']}")
+
+    return "\n\n".join(output)
+
+@tool
+def newsletter_tool(topic: str) -> List[Dict]:
+    """
+    Use for curated insights and summaries from high-quality AI/tech newsletters.
+    Best for trends, not breaking news.
+    """
+
+    sources = {
+        "tldr_ai": "https://tldr.tech/ai/rss",
+        "ai_weekly": "https://aiweekly.co/rss",
+    }
+
+    results = []
+
+    for name, url in sources.items():
+        feed = feedparser.parse(url)
+
+        for entry in feed.entries[:2]:
+            results.append({
+                "source": name,
+                "title": entry.title,
+                "summary": entry.summary,
+                "topic": topic
+            })
+
+    return results
 
 @tool
 def ingest_pdf_tool(file_path: str) -> str:
