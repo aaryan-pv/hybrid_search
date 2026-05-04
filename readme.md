@@ -1,4 +1,19 @@
-# SEarch_MCP
+
+## 📌 Overview
+
+This is a  multi-tool agent system that combines:
+- Vector search (LanceDB)
+- Keyword search (SQLite)
+- BM25 ranking
+- External Tools (news, finance, weather, etc.)
+
+It uses a tool-augmented LLM powered by LangGraph to iteratively reason, call tools, and produce accurate responses.
+
+Key capabilities:
+- Multi-step reasoning agent
+- Hybrid document retrieval (BM25 + vector + keyword)
+- Domain-specific tools (finance, medical)
+- FastAPI + MCP integration for external access
 
 ## Repository Structure
 
@@ -7,7 +22,53 @@
 - `search_fastmcp.py` - FastAPI application entrypoint with REST routes and MCP mounting.
  
 
-## Components
+## How to run:
+1. Clone the repo
+
+2. Create a venv- 
+python -m venv venv
+venv\Scripts\activate           
+
+3. Install the `requirements.txt`: pip install -r requirements.txt
+
+4. Environment Variables: Create a `.env` file in the root:
+
+5. For Running Agent: `python app.py`
+
+6. For FastAPI Routes: `python search_fastmcp.py`
+FastAPI docs will be available at: http://localhost:8003/docs
+
+For MCP Inspector: npx @modelcontextprotocol/inspector http://localhost:8003/mcp
+
+## Logical Flow 
+
+START
+  ↓
+Agent (LLM reasoning)
+  ↓
+Does it call tools?
+  ├── YES → Execute Tools → Back to Agent
+  ├── NO → Final Answer? → YES → END
+  └── NO → Continue reasoning loop
+  ↓
+Max steps reached → END
+
+## 🔁 Agent Workflow Diagram
+
+```mermaid
+flowchart TD
+
+    START([Start]) --> AGENT[Agent Node<br/>call_model]
+
+    AGENT -->|Tool Calls Present| TOOLS[Tools Node<br/>call_tools]
+    AGENT -->|Final Answer Detected| END([End])
+    AGENT -->|No Tools + Continue Reasoning| AGENT
+
+    TOOLS -->|Return Tool Results| AGENT
+
+    AGENT -->|Max Steps Reached| END
+```
+
 
 ### `tools.py`
 
@@ -71,11 +132,9 @@ These wrappers expose the core search functions as LangChain-compatible tools.
 - `medical_tool`-
   -Connected to some credible medical related news/info websites.This act as a domain specific tool, agent should use this for any health related query over other tools.
 
-### `search_fastmcp.py`
+ 
 
-This file defines the HTTP API for the hybrid retrieval service.
-
-#### FastAPI routes
+#### FastAPI routes(search_fastmcp.py)
 
 - `POST /search/`
   - Accepts `query` and optional `k`.
@@ -116,6 +175,8 @@ This module builds an interactive tool-enabled agent using `langgraph` and  Qwen
 - Compiles an agent graph and exposes a CLI loop for direct user interaction.
 -The agent can take document from the user and can embed it, then the user can ask queries from it.
 
+
+## agent_response.json : This have a list of queries given to the agent with the expected tool called mentioned and what tools agent actually called. This shows the decision making of the model and how well it decides to call any tools.
 
 ## Data and Storage
 
