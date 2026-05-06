@@ -45,7 +45,7 @@ llm_with_tools = llm.bind_tools(tools)
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     steps: int
-
+    route: str   # ADD THIS
 
 SYSTEM_PROMPT = SystemMessage(content="""
 You are an autonomous multi-tool reasoning agent.
@@ -136,15 +136,13 @@ Tools used: <comma-separated tool names>
 
 
 def call_model(state: AgentState):
-    messages = state["messages"]
-    steps = state.get("steps", 0)
     response = llm_with_tools.invoke(
-        [SYSTEM_PROMPT] + messages
+        [SYSTEM_PROMPT] + state["messages"]
     )
 
     return {
         "messages": [response],
-        "steps": steps + 1
+        "steps": state.get("steps", 0) + 1
     }
 
 def call_tools(state: AgentState):
@@ -174,25 +172,69 @@ def call_tools(state: AgentState):
 
     return {"messages": tool_outputs}
 
+ 
+def evaluate(state: AgentState):
+    messages = state["messages"]
+
+    # last tool output(s)
+    last_tool_output = None
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage):
+            last_tool_output = msg.content
+            break
+
+    # fallback if no tool used
+    if not last_tool_output:
+        return {"route": "agent"}
+
+    eval_prompt = f"""
+You are an evaluation system.
+
+Decide if the tool output is sufficient to answer the user query.
+
+User Query:
+{messages[0].content}
+
+Tool Output:
+{last_tool_output}
+
+Rules:
+- If information is complete and directly answers the query → return END
+- If information is incomplete, vague, or insufficient → return RETRY
+
+Return ONLY one word:
+END or RETRY
+"""
+
+    response = llm.invoke(eval_prompt).content.strip().upper()
+
+    if "END" in response:
+        return {"route": END}
+    else:
+        return {"route": "agent"}
+
+
 MAX_STEPS=5
+
+
 def should_continue(state: AgentState):
     last = state["messages"][-1]
     steps = state.get("steps", 0)
 
-
     if steps >= MAX_STEPS:
         return END
-    # If tool calls exist → execute tools
+
     if hasattr(last, "tool_calls") and last.tool_calls:
         return "tools"
 
-    # If model explicitly finished → stop
-    if isinstance(last.content, str) and "FINAL ANSWER:" in last.content:
-        return END
+    return END  # agent always stops unless tool is needed
+def agent_router(state):
+    last = state["messages"][-1]
 
-    # Otherwise → let model think again (self-correction loop)
-    return "agent"
+    if hasattr(last, "tool_calls") and last.tool_calls:
+        return "tools"
 
+    return END
 
 
 graph = StateGraph(AgentState)
@@ -200,23 +242,34 @@ graph = StateGraph(AgentState)
 # nodes
 graph.add_node("agent", call_model)
 graph.add_node("tools", call_tools)
+graph.add_node("eval", evaluate)
+ 
 
-# entry
 graph.set_entry_point("agent")
 
-# routing logic
+# agent routing
 graph.add_conditional_edges(
     "agent",
-    should_continue,
+    agent_router,
     {
         "tools": "tools",
-        "agent": "agent",
         END: END
     }
 )
 
-graph.add_edge("tools", "agent")
+# tools → eval
+graph.add_edge("tools", "eval")
 
+ 
+graph.add_conditional_edges(
+    "eval",
+    lambda state: state["route"],
+    {
+        "agent": "agent",
+        END: END
+    }
+)
+ 
 agent = graph.compile()
 
 chat_history = []
@@ -240,17 +293,15 @@ while True:
 
     chat_history.append(HumanMessage(content=user_input))
 
-    trimmed_history = chat_history[-MAX_MEMORY:]
-
     result = agent.invoke({
-    "messages": trimmed_history
-    })
+    "messages": [HumanMessage(content=user_input)],
+    "steps": 0,
+    "route": "agent"
+})
   
     response = result["messages"][-1]
     cleaned_output = clean_response(response.content)
 
     print(f"\n AI: {cleaned_output}\n")
-    save_message("assistant", response.content)
-    chat_history.append(HumanMessage(content=user_input))
- 
+    save_message("assistant", response.content) 
     save_message("user", user_input)

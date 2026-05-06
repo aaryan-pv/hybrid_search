@@ -12,11 +12,16 @@ import os
 from langchain_core.tools import tool
 from typing import List, Dict
 import feedparser
+from dotenv import load_dotenv
+load_dotenv()
 
-# API keys are checked at request time to avoid import-time environment mismatches.
+# API keys from environment
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
  
 
-tavily = TavilyClient(api_key="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")
+tavily = TavilyClient(api_key=TAVILY_API_KEY)
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -42,23 +47,41 @@ cursor.execute("CREATE INDEX IF NOT EXISTS idx_keyword ON chunk_keywords(keyword
 kw_extractor = yake.KeywordExtractor(lan="en", n=2, top=5)
 
 def load_pdf(file_path: str):
-    reader = PdfReader(file_path)
-    return " ".join([page.extract_text() or "" for page in reader.pages])
+    try:
+        reader = PdfReader(file_path)
+        try:
+            return " ".join([page.extract_text() or "" for page in reader.pages])
+        except Exception:
+            return ""
+    except Exception:
+        return ""
 
 
 def chunk_text(text, chunk_size=300, overlap=50):
-    words = text.split()
-    return [
-        " ".join(words[i:i + chunk_size])
-        for i in range(0, len(words), chunk_size - overlap)
-    ]
-
+    try:
+        words = text.split()
+        try:
+            return [
+                " ".join(words[i:i + chunk_size])
+                for i in range(0, len(words), chunk_size - overlap)
+            ]
+        except Exception:
+            return []
+    except Exception:
+        return []
 
 def ingest_pdf(file_path: str):
     global documents, bm25, table, doc_map
 
-    text = load_pdf(file_path)
-    chunks = chunk_text(text)
+    try:
+        text = load_pdf(file_path)
+    except Exception:
+        text = ""
+
+    try:
+        chunks = chunk_text(text)
+    except Exception:
+        chunks = []
 
     new_docs = []
     start_id = len(documents) + 1
@@ -72,98 +95,176 @@ def ingest_pdf(file_path: str):
         })
 
         # keyword extraction
-        keywords = kw_extractor.extract_keywords(chunk)
-        for kw, _ in keywords:
-            cursor.execute(
-                "INSERT INTO chunk_keywords VALUES (?, ?)",
-                (doc_id, kw.lower())
-            )
+        try:
+            keywords = kw_extractor.extract_keywords(chunk)
+            for kw, _ in keywords:
+                try:
+                    cursor.execute(
+                        "INSERT INTO chunk_keywords VALUES (?, ?)",
+                        (doc_id, kw.lower())
+                    )
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
-    conn.commit()
+    try:
+        conn.commit()
+    except Exception:
+        pass
 
-    documents.extend(new_docs)
-    for d in new_docs:
-        doc_map[d["id"]] = d
+    try:
+        documents.extend(new_docs)
+    except Exception:
+        pass
+
+    try:
+        for d in new_docs:
+            doc_map[d["id"]] = d
+    except Exception:
+        pass
 
     # BM25
-    tokenized = [d["text"].split() for d in documents]
-    bm25 = BM25Okapi(tokenized)
+    try:
+        tokenized = [d["text"].split() for d in documents]
+        bm25 = BM25Okapi(tokenized)
+    except Exception:
+        bm25 = None
 
     # embeddings
-    embeddings = model.encode([d["text"] for d in new_docs]).tolist()
+    try:
+        embeddings = model.encode([d["text"] for d in new_docs]).tolist()
+    except Exception:
+        embeddings = []
 
-    rows = [
-        {"id": new_docs[i]["id"], "text": new_docs[i]["text"], "vector": embeddings[i]}
-        for i in range(len(new_docs))
-    ]
+    try:
+        rows = [
+            {"id": new_docs[i]["id"], "text": new_docs[i]["text"], "vector": embeddings[i]}
+            for i in range(len(new_docs))
+        ]
+    except Exception:
+        rows = []
 
-    if table is None:
-        table = db.create_table("docs", data=rows, mode="overwrite")
-    else:
-        table.add(rows)
+    try:
+        if table is None:
+            table = db.create_table("docs", data=rows, mode="overwrite")
+        else:
+            table.add(rows)
+    except Exception:
+        pass
 
     return len(new_docs)
 
 
+
 def keyword_search(query: str, k: int = 5):
-    query_terms = query.lower().split()
+    try:
+        query_terms = query.lower().split()
+    except Exception:
+        query_terms = []
+
     scores = {}
 
     for term in query_terms:
-        cursor.execute(
-            "SELECT chunk_id FROM chunk_keywords WHERE keyword = ?",
-            (term,)
-        )
-        for (chunk_id,) in cursor.fetchall():
-            scores[chunk_id] = scores.get(chunk_id, 0) + 1
+        try:
+            cursor.execute(
+                "SELECT chunk_id FROM chunk_keywords WHERE keyword = ?",
+                (term,)
+            )
+            try:
+                results = cursor.fetchall()
+                for (chunk_id,) in results:
+                    try:
+                        scores[chunk_id] = scores.get(chunk_id, 0) + 1
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        except Exception:
+            continue
 
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [doc_id for doc_id, _ in ranked[:k]]
+    try:
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    except Exception:
+        ranked = []
 
+    try:
+        return [doc_id for doc_id, _ in ranked[:k]]
+    except Exception:
+        return []
 
 def reciprocal_rank_fusion(rank_lists, k=60):
     scores = {}
-    for rank_list in rank_lists:
-        for rank, doc_id in enumerate(rank_list):
-            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
-    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    try:
+        for rank_list in rank_lists:
+            try:
+                for rank, doc_id in enumerate(rank_list):
+                    try:
+                        scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    except Exception:
+        return []
 
+    try:
+        return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    except Exception:
+        return []
 
 def hybrid_search(query: str, k: int = 5):
     global bm25, table
 
-    if bm25 is None or table is None:
+    try:
+        if bm25 is None or table is None:
+            return []
+    except Exception:
         return []
 
     # BM25
-    tokenized_query = query.split()
-    bm25_scores = bm25.get_scores(tokenized_query)
-    bm25_top_k = np.argsort(bm25_scores)[::-1][:k]
-    bm25_ids = [documents[idx]["id"] for idx in bm25_top_k]
+    try:
+        tokenized_query = query.split()
+        bm25_scores = bm25.get_scores(tokenized_query)
+        bm25_top_k = np.argsort(bm25_scores)[::-1][:k]
+        bm25_ids = [documents[idx]["id"] for idx in bm25_top_k]
+    except Exception:
+        bm25_ids = []
 
     # Vector
-    query_embedding = model.encode(query).tolist()
-    vector_results = table.search(query_embedding).limit(k).to_list()
-    vector_ids = [r["id"] for r in vector_results]
+    try:
+        query_embedding = model.encode(query).tolist()
+        vector_results = table.search(query_embedding).limit(k).to_list()
+        vector_ids = [r["id"] for r in vector_results]
+    except Exception:
+        vector_ids = []
 
     # Keyword
-    keyword_ids = keyword_search(query, k)
+    try:
+        keyword_ids = keyword_search(query, k)
+    except Exception:
+        keyword_ids = []
 
     # Fusion
-    fused = reciprocal_rank_fusion([
-        bm25_ids,
-        vector_ids,
-        keyword_ids
-    ])
+    try:
+        fused = reciprocal_rank_fusion([
+            bm25_ids,
+            vector_ids,
+            keyword_ids
+        ])
+    except Exception:
+        fused = []
 
-    return [
-        {
-            "id": doc_id,
-            "text": doc_map[doc_id]["text"]
-        }
-        for doc_id, _ in fused[:k]
-    ]
-
+    try:
+        return [
+            {
+                "id": doc_id,
+                "text": doc_map[doc_id]["text"]
+            }
+            for doc_id, _ in fused[:k]
+        ]
+    except Exception:
+        return []
 
 @tool
 def finance_tool(query: str) -> str:
@@ -177,52 +278,79 @@ def finance_tool(query: str) -> str:
         "investopedia.com"
     ]
 
-    results = tavily.search(
-        query=query,
-        max_results=5,
-        include_domains=trusted_domains
-    )
+    try:
+        results = tavily.search(
+            query=query,
+            max_results=5,
+            include_domains=trusted_domains
+        )
+    except Exception:
+        return ""
 
     output = []
-    for r in results["results"]:
-        output.append(f"{r['title']}\n{r['content']}\nSource: {r['url']}")
+    try:
+        for r in results["results"]:
+            try:
+                output.append(f"{r['title']}\n{r['content']}\nSource: {r['url']}")
+            except Exception:
+                continue
+    except Exception:
+        return ""
 
-    return "\n\n".join(output)
+    try:
+        return "\n\n".join(output)
+    except Exception:
+        return ""
  
 @tool
 def web_search(query: str) -> List[Dict]:
     """Search the web for recent or unknown information."""
 
-    response = tavily.search(query=query, max_results=3)
+    try:
+        response = tavily.search(query=query, max_results=3)
+    except Exception:
+        return []
 
     results = []
 
-    for i, r in enumerate(response["results"]):
-        results.append({
-            "source": "web",
-            "title": r.get("title", ""),
-            "content": r.get("content", ""),
-            "url": r.get("url", ""),
-            "score": 1.0 / (i + 1)
-        })
+    try:
+        for i, r in enumerate(response["results"]):
+            try:
+                results.append({
+                    "source": "web",
+                    "title": r.get("title", ""),
+                    "content": r.get("content", ""),
+                    "url": r.get("url", ""),
+                    "score": 1.0 / (i + 1)
+                })
+            except Exception:
+                continue
+    except Exception:
+        return []
 
-    return results
+    try:
+        return results
+    except Exception:
+        return []
 
 @tool
 def news_tool(query: str, k: int = 3) -> List[Dict]:
     """Use for latest news, recent events, or current updates."""
 
-    api_key ="93407727d1ad49ea874a36999cbf63b1"
-    if not api_key:
-        return [
-            {
-                "source": "news",
-                "title": "News API key not configured",
-                "content": "Set NEWS_API_KEY in the environment before calling news_tool.",
-                "url": "",
-                "score": 0.0,
-            }
-        ]
+    api_key ="NEWS_API_KEY"
+    try:
+        if not api_key:
+            return [
+                {
+                    "source": "news",
+                    "title": "News API key not configured",
+                    "content": "Set NEWS_API_KEY in the environment before calling news_tool.",
+                    "url": "",
+                    "score": 0.0,
+                }
+            ]
+    except Exception:
+        return []
 
     url = "https://newsapi.org/v2/everything"
     params = {
@@ -233,72 +361,123 @@ def news_tool(query: str, k: int = 3) -> List[Dict]:
         "sortBy": "publishedAt",
     }
 
-    response = requests.get(url, params=params, timeout=10)
+    try:
+        response = requests.get(url, params=params, timeout=10)
+    except Exception:
+        return []
 
-    if response.status_code != 200:
-        error = response.json().get("message", "Unknown News API error")
-        return [
-            {
-                "source": "news",
-                "title": "News API request failed",
-                "content": error,
-                "url": "",
-                "score": 0.0,
-            }
-        ]
+    try:
+        if response.status_code != 200:
+            try:
+                error = response.json().get("message", "Unknown News API error")
+            except Exception:
+                error = "Unknown News API error"
+            return [
+                {
+                    "source": "news",
+                    "title": "News API request failed",
+                    "content": error,
+                    "url": "",
+                    "score": 0.0,
+                }
+            ]
+    except Exception:
+        return []
 
-    res = response.json()
-    articles = res.get("articles", [])[:k]
+    try:
+        res = response.json()
+    except Exception:
+        return []
+
+    try:
+        articles = res.get("articles", [])[:k]
+    except Exception:
+        articles = []
 
     results = []
-    for i, a in enumerate(articles):
-        results.append({
-            "source": "news",
-            "title": a.get("title", ""),
-            "content": a.get("description", ""),
-            "url": a.get("url", ""),
-            "score": 1.0 / (i + 1)
-        })
+    try:
+        for i, a in enumerate(articles):
+            try:
+                results.append({
+                    "source": "news",
+                    "title": a.get("title", ""),
+                    "content": a.get("description", ""),
+                    "url": a.get("url", ""),
+                    "score": 1.0 / (i + 1)
+                })
+            except Exception:
+                continue
+    except Exception:
+        return []
 
-    return results
+    try:
+        return results
+    except Exception:
+        return []
+    
 
 @tool
 def get_weather(city: str) -> Dict:
     """Get current weather of a city."""
 
-    api_key ="1ebdfab43a461b105acc7c7aa0273839" 
-    if not api_key:
-        return {
-            "source": "weather",
-            "city": city,
-            "error": "OpenWeather API key is missing. Set OPEN_WEATHER_API_KEY in the environment.",
-            "score": 0.0
-        }
+    try:
+        api_key = OPENWEATHER_API_KEY
+    except Exception:
+        return {}
+
+    try:
+        if not api_key:
+            return {
+                "source": "weather",
+                "city": city,
+                "error": "OpenWeather API key is missing. Set OPEN_WEATHER_API_KEY in the environment.",
+                "score": 0.0
+            }
+    except Exception:
+        return {}
 
     url = (
         f"http://api.openweathermap.org/data/2.5/weather"
         f"?q={city}&appid={api_key}&units=metric"
     )
 
-    response = requests.get(url)
-    data = response.json()
+    try:
+        response = requests.get(url)
+    except Exception:
+        return {}
 
-    if response.status_code != 200:
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    try:
+        if response.status_code != 200:
+            try:
+                error_msg = data.get("message", "Could not fetch weather")
+            except Exception:
+                error_msg = "Could not fetch weather"
+            return {
+                "source": "weather",
+                "city": city,
+                "error": error_msg,
+                "score": 0.0
+            }
+    except Exception:
+        return {}
+
+    try:
         return {
             "source": "weather",
             "city": city,
-            "error": data.get("message", "Could not fetch weather"),
-            "score": 0.0
+            "temperature": data["main"]["temp"],
+            "description": data["weather"][0]["description"],
+            "humidity": data["main"]["humidity"],
+            "score": 1.0
         }
-
-    return {
-        "source": "weather",
-        "city": city,
-        "temperature": data["main"]["temp"],
-        "description": data["weather"][0]["description"],
-        "humidity": data["main"]["humidity"],
-        "score": 1.0
-    }
+    except Exception:
+        return {}
+    
 
 @tool
 def medical_tool(query: str) -> str:
@@ -311,17 +490,31 @@ def medical_tool(query: str) -> str:
         "mayoclinic.org"
     ]
 
-    results = tavily.search(
-        query=query,
-        max_results=5,
-        include_domains=trusted_domains
-    )
+    try:
+        results = tavily.search(
+            query=query,
+            max_results=5,
+            include_domains=trusted_domains
+        )
+    except Exception:
+        return ""
 
     output = []
-    for r in results["results"]:
-        output.append(f"{r['title']}\n{r['content']}\nSource: {r['url']}")
 
-    return "\n\n".join(output)
+    try:
+        for r in results["results"]:
+            try:
+                output.append(f"{r['title']}\n{r['content']}\nSource: {r['url']}")
+            except Exception:
+                continue
+    except Exception:
+        return ""
+
+    try:
+        return "\n\n".join(output)
+    except Exception:
+        return ""
+    
 
 @tool
 def newsletter_tool(topic: str) -> List[Dict]:
@@ -337,24 +530,44 @@ def newsletter_tool(topic: str) -> List[Dict]:
 
     results = []
 
-    for name, url in sources.items():
-        feed = feedparser.parse(url)
+    try:
+        for name, url in sources.items():
+            try:
+                feed = feedparser.parse(url)
+            except Exception:
+                continue
 
-        for entry in feed.entries[:2]:
-            results.append({
-                "source": name,
-                "title": entry.title,
-                "summary": entry.summary,
-                "topic": topic
-            })
+            try:
+                for entry in feed.entries[:2]:
+                    try:
+                        results.append({
+                            "source": name,
+                            "title": entry.title,
+                            "summary": entry.summary,
+                            "topic": topic
+                        })
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    except Exception:
+        return []
 
-    return results
+    try:
+        return results
+    except Exception:
+        return []
+    
+
 
 @tool
 def ingest_pdf_tool(file_path: str) -> str:
     """Load and index a PDF file."""
-    count = ingest_pdf(file_path)
-    return f"Ingested {count} chunks."
+    try:
+        count = ingest_pdf(file_path)
+        return f"Ingested {count} chunks."
+    except Exception:
+        return "PDF ingestion failed."
  
 
 @tool
@@ -363,26 +576,54 @@ def keyword_search_tool(query: str) -> str:
     Retrieve document chunks using keyword-based SQLite search.
     """
 
-    chunk_ids = keyword_search(query)
+    try:
+        chunk_ids = keyword_search(query)
+    except Exception:
+        return "Keyword search failed."
 
-    if not chunk_ids:
+    try:
+        if not chunk_ids:
+            return "No keyword matches found."
+    except Exception:
         return "No keyword matches found."
 
     results = []
-    for cid in chunk_ids:
-        if cid in doc_map:
-            results.append(f"[{cid}] {doc_map[cid]['text'][:300]}")
 
-    return "\n\n".join(results)
+    try:
+        for cid in chunk_ids:
+            try:
+                if cid in doc_map:
+                    results.append(f"[{cid}] {doc_map[cid]['text'][:300]}")
+            except Exception:
+                continue
+    except Exception:
+        return "Keyword search failed."
+
+    try:
+        return "\n\n".join(results)
+    except Exception:
+        return "Keyword search failed."
+
+
 @tool
 def search_tool(query: str) -> str:
     """Search relevant chunks from indexed documents."""
-    results = hybrid_search(query)
 
-    if not results:
-        return "No documents found. Please ingest a PDF first."
+    try:
+        results = hybrid_search(query)
+    except Exception:
+        return "Search failed due to an internal error."
 
-    return "\n\n".join([
-        f"[{r['id']}] {r['text'][:300]}"
-        for r in results
-    ])
+    try:
+        if not results:
+            return "No documents found. Please ingest a PDF first."
+    except Exception:
+        return "Search failed due to an internal error."
+
+    try:
+        return "\n\n".join([
+            f"[{r['id']}] {r['text'][:300]}"
+            for r in results
+        ])
+    except Exception:
+        return "Search failed due to an internal error."

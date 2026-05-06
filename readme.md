@@ -41,33 +41,126 @@ FastAPI docs will be available at: http://localhost:8003/docs
 For MCP Inspector: npx @modelcontextprotocol/inspector http://localhost:8003/mcp
 
 ## Logical Flow 
+```mermaid
+flowchart TD
+    A[User Input] --> B[Agent Node (LLM)]
 
-START
-  ↓
-Agent (LLM reasoning)
-  ↓
-Does it call tools?
-  ├── YES → Execute Tools → Back to Agent
-  ├── NO → Final Answer? → YES → END
-  └── NO → Continue reasoning loop
-  ↓
-Max steps reached → END
+    B -->|Needs Tool?| C{Tool Calls Present}
+
+    C -->|Yes| D[Tools Node]
+    C -->|No| Z[Final Answer]
+
+    D --> E[Execute Tools]
+    E --> F[Tool Messages Returned]
+
+    F --> G[Evaluation Node]
+
+    G -->|Sufficient?| H{Decision}
+
+    H -->|END| Z
+    H -->|RETRY| B
+
+    Z --> I[Return Final Answer]
+    ```
 
 ## 🔁 Agent Workflow Diagram
 
 ```mermaid
-flowchart TD
+flowchart TB
 
-    START([Start]) --> AGENT[Agent Node<br/>call_model]
+    %% ========== USER ==========
+    U[User Input]
 
-    AGENT -->|Tool Calls Present| TOOLS[Tools Node<br/>call_tools]
-    AGENT -->|Final Answer Detected| END([End])
-    AGENT -->|No Tools + Continue Reasoning| AGENT
+    %% ========== AGENT LAYER ==========
+    subgraph AGENT["🧠 Agent Layer"]
+        A[Agent Node<br/>LLM + Reasoning]
+        E[Evaluation Node<br/>Quality Check]
+    end
 
-    TOOLS -->|Return Tool Results| AGENT
+    %% ========== EXECUTION LAYER ==========
+    subgraph EXEC["⚙️ Execution Layer"]
+        T[Tools Node<br/>Tool Executor]
+    end
 
-    AGENT -->|Max Steps Reached| END
+    %% ========== TOOLS ==========
+    subgraph TOOLS["🛠️ Tools Layer"]
+        T1[Search Tools]
+        T2[Web & News]
+        T3[Finance]
+        T4[Medical]
+        T5[Weather]
+        T6[PDF Ingestion]
+    end
+
+    %% ========== STORAGE ==========
+    subgraph DB["💾 Storage"]
+        S[(SQLite<br/>chat_history.db)]
+    end
+
+    %% ========== FLOW ==========
+    U --> A
+
+    A -->|Tool Call| T
+    A -->|Final Answer| U
+
+    T --> T1
+    T --> T2
+    T --> T3
+    T --> T4
+    T --> T5
+    T --> T6
+
+    T --> E
+
+    E -->|Retry| A
+    E -->|Sufficient| A
+
+    %% Logging
+    A --> S
+    T --> S
 ```
+
+### Agent Flow:
+
+1. User Input
+The process begins when the user submits a query to the system.
+
+2. Agent Node (LLM Reasoning)
+The Agent Node receives the user query and analyzes it.
+It decides whether:
+- The answer can be generated directly, OR
+- External information is required via tools
+
+3. Tool Decision
+If additional data is needed, the agent generates one or more tool calls.
+
+4. Tools Node Execution
+The Tools Node executes the requested tools (e.g., search, weather, finance, medical).
+Each tool returns structured output back to the system.
+
+5. Tool Output Handling
+The results from tools are converted into messages and passed forward for evaluation.
+All tool interactions are logged into the database.
+
+6. Evaluation Node (Quality Check)
+The Evaluation Node reviews the tool output and determines:
+- If the information is sufficient → proceed to final answer
+- If incomplete or unclear → retry with the agent
+
+7. Iteration Loop
+If the output is insufficient:
+- The system loops back to the Agent Node
+- The agent refines the query or selects better tools
+- This continues until a complete answer is formed or max steps are reached
+
+8. Final Answer Generation
+Once sufficient information is available, the Agent Node generates the final response.
+
+9. Response Delivery
+The final answer is returned to the user in a clean format.
+
+10. Logging & Storage
+All interactions (user input, assistant responses, tool outputs) are stored in SQLite for traceability and debugging.
 
 
 ### `tools.py`
@@ -175,8 +268,11 @@ This module builds an interactive tool-enabled agent using `langgraph` and  Qwen
 - Compiles an agent graph and exposes a CLI loop for direct user interaction.
 -The agent can take document from the user and can embed it, then the user can ask queries from it.
 
+### Langsmith Integration: 
+Added langsmith to trace the threads and understand the flow of the user query, can be used to valide that the agent is working in a correct flow or not.
 
-## agent_response.json : This have a list of queries given to the agent with the expected tool called mentioned and what tools agent actually called. This shows the decision making of the model and how well it decides to call any tools.
+## agent_response.json : 
+This have a list of queries given to the agent with the expected tool called mentioned and what tools agent actually called. This shows the decision making of the model and how well it decides to call any tools.
 
 ## Data and Storage
 
